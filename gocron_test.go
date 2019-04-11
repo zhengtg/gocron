@@ -16,6 +16,77 @@ func taskWithParams(a int, b string) {
 	fmt.Println(a, b)
 }
 
+func taskTime() {
+	fmt.Println("before running job.")
+	time.Sleep(3 * time.Second)
+	fmt.Println("after running job.")
+}
+
+type JobTest struct {
+	Job
+	isRunning bool
+}
+
+func NewJobTest(intervel uint64) *JobTest {
+	job := &JobTest{*NewJob(intervel), false}
+	job.isRunning = false
+	job.Do(func() {
+		//defer func() {
+		//	if p := recover(); p != nil {
+		//		fmt.Println("panic recover! p:", p)
+		//		//str, ok := p.(string)
+		//		//if ok {
+		//		//	err = errors.New(str)
+		//		//} else {
+		//		//	err = errors.New("panic")
+		//		//}
+		//		debug.PrintStack()
+		//	}
+		//}()
+		job.isRunning = true
+		job.jobFunction()
+		job.isRunning = false
+	})
+	return job
+}
+
+func (self *JobTest) jobFunction() string {
+	fmt.Println("before this is a test job!!")
+	time.Sleep(3 * time.Second)
+	//panic("error test")
+	fmt.Println("after this is a test job!!")
+	return fmt.Sprint("this is a test job!!")
+}
+
+func TestSyncStop(t *testing.T) {
+
+	defaultScheduler.Every(1).Second().Do(task)
+	job := NewJobTest(1)
+	defaultScheduler.AddJob(&job.Job)
+	//defaultScheduler.AddJob((*Job)(unsafe.Pointer(job)))
+	//defaultScheduler.Every(1).Second().Do(taskTime)
+	defaultScheduler.Start()
+	time.Sleep(2 * time.Second)
+	fmt.Println(job.isRunning)
+	defaultScheduler.StopSync()
+	fmt.Println("StopSync ok")
+	if defaultScheduler.Len() != 0 {
+		t.Fail()
+		t.Logf("TestSyncStop not empty")
+	}
+}
+
+func TestStop(t *testing.T) {
+	defaultScheduler.Every(1).Second().Do(taskTime)
+	defaultScheduler.Start()
+	time.Sleep(2 * time.Second)
+	defaultScheduler.Stop()
+	if defaultScheduler.Len() != 0 {
+		t.Fail()
+		t.Logf("TestStop not empty")
+	}
+}
+
 func TestSecond(*testing.T) {
 	defaultScheduler.Every(1).Second().Do(task)
 	defaultScheduler.Every(1).Second().Do(taskWithParams, 1, "hello")
@@ -149,13 +220,20 @@ func Test_formatTime(t *testing.T) {
 // utility function for testing the weekday functions *on* the current weekday.
 func callTodaysWeekday(job *Job) *Job {
 	switch time.Now().Weekday() {
-	case 0: job.Sunday()
-	case 1: job.Monday()
-	case 2: job.Tuesday()
-	case 3: job.Wednesday()
-	case 4: job.Thursday()
-	case 5: job.Friday()
-	case 6: job.Saturday()
+	case 0:
+		job.Sunday()
+	case 1:
+		job.Monday()
+	case 2:
+		job.Tuesday()
+	case 3:
+		job.Wednesday()
+	case 4:
+		job.Thursday()
+	case 5:
+		job.Friday()
+	case 6:
+		job.Saturday()
 	}
 	return job
 }

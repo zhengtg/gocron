@@ -25,6 +25,7 @@ import (
 	"sort"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 )
 
@@ -66,6 +67,9 @@ type Job struct {
 
 	// Map for function and  params of function
 	fparams map[string]([]interface{})
+
+	// Sync job for schedule
+	wg *sync.WaitGroup
 }
 
 // Create a new job with the time interval.
@@ -78,6 +82,7 @@ func NewJob(intervel uint64) *Job {
 		time.Sunday,
 		make(map[string]interface{}),
 		make(map[string]([]interface{})),
+		nil,
 	}
 }
 
@@ -98,10 +103,28 @@ func (j *Job) run() (result []reflect.Value, err error) {
 	for k, param := range params {
 		in[k] = reflect.ValueOf(param)
 	}
+
+	j.addFlag()
+	defer j.clearFlag()
+
 	result = f.Call(in)
 	j.lastRun = time.Now()
 	j.scheduleNextRun()
 	return
+}
+
+// add running flag for job
+func (j *Job) addFlag() {
+	if j.wg != nil {
+		j.wg.Add(1)
+	}
+}
+
+// clear running flag for job
+func (j *Job) clearFlag() {
+	if j.wg != nil {
+		j.wg.Done()
+	}
 }
 
 // for given function fn, get the name of function.
@@ -370,6 +393,12 @@ type Scheduler struct {
 
 	// Size of jobs which jobs holding.
 	size int
+
+	// sign chan for stop
+	signChan chan bool
+
+	// manager jobs
+	wg *sync.WaitGroup
 }
 
 // Scheduler implements the sort.Interface{} for sorting jobs, by the time nextRun
@@ -388,7 +417,7 @@ func (s *Scheduler) Less(i, j int) bool {
 
 // Create a new scheduler
 func NewScheduler() *Scheduler {
-	return &Scheduler{[MAXJOBNUM]*Job{}, 0}
+	return &Scheduler{[MAXJOBNUM]*Job{}, 0, make(chan bool, 1), new(sync.WaitGroup)}
 }
 
 // Get the current runnable jobs, which shouldRun is True
@@ -419,8 +448,20 @@ func (s *Scheduler) NextRun() (*Job, time.Time) {
 }
 
 // Schedule a new periodic job
+func (s *Scheduler) AddJob(job *Job) *Job {
+	if job == nil {
+		panic("job is nil")
+	}
+	job.wg = s.wg
+	s.jobs[s.size] = job
+	s.size++
+	return job
+}
+
+// Schedule a new periodic job
 func (s *Scheduler) Every(interval uint64) *Job {
 	job := NewJob(interval)
+	job.wg = s.wg
 	s.jobs[s.size] = job
 	s.size++
 	return job
@@ -486,7 +527,6 @@ func (s *Scheduler) Clear() {
 // Start all the pending jobs
 // Add seconds ticker
 func (s *Scheduler) Start() chan bool {
-	stopped := make(chan bool, 1)
 	ticker := time.NewTicker(1 * time.Second)
 
 	go func() {
@@ -494,13 +534,23 @@ func (s *Scheduler) Start() chan bool {
 			select {
 			case <-ticker.C:
 				s.RunPending()
-			case <-stopped:
+			case <-s.signChan:
 				return
 			}
 		}
 	}()
 
-	return stopped
+	return s.signChan
+}
+
+func (s *Scheduler) Stop() {
+	s.signChan <- false
+	s.Clear()
+}
+
+func (s *Scheduler) StopSync() {
+	s.Stop()
+	s.wg.Wait()
 }
 
 // The following methods are shortcuts for not having to
