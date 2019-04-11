@@ -46,6 +46,7 @@ type JobInterface interface {
 	SetWaitGroup(wg *sync.WaitGroup)
 	ShouldRun() bool
 	Run()
+	AfterRun()
 	NextRun() time.Time
 	Period() time.Duration
 	At(t string) JobInterface
@@ -66,9 +67,11 @@ type JobInterface interface {
 	Saturday() (job JobInterface)
 	Sunday() (job JobInterface)
 	Weeks() (job JobInterface)
-
 	//Do and JobFunction
 	Do(jobFun interface{}, params ...interface{}) (job JobInterface)
+}
+
+type JobFunctionInterface interface {
 	JobFunction()
 }
 
@@ -127,12 +130,11 @@ func (j *Job) ShouldRun() bool {
 }
 
 func (j *Job) Run() {
-	j.addFlag()
-	defer j.clearFlag()
+	j.AddSync()
+	defer j.ClearSync()
+	defer j.AfterRun()
 
 	j.JobFunction()
-	j.lastRun = time.Now()
-	j.scheduleNextRun()
 }
 
 //Run the job and immediately reschedule it
@@ -148,8 +150,8 @@ func (j *Job) run() (result []reflect.Value, err error) {
 		in[k] = reflect.ValueOf(param)
 	}
 
-	j.addFlag()
-	defer j.clearFlag()
+	j.AddSync()
+	defer j.ClearSync()
 
 	result = f.Call(in)
 	j.lastRun = time.Now()
@@ -158,17 +160,23 @@ func (j *Job) run() (result []reflect.Value, err error) {
 }
 
 // add running flag for job
-func (j *Job) addFlag() {
+func (j *Job) AddSync() {
 	if j.wg != nil {
 		j.wg.Add(1)
 	}
 }
 
 // clear running flag for job
-func (j *Job) clearFlag() {
+func (j *Job) ClearSync() {
 	if j.wg != nil {
 		j.wg.Done()
 	}
+}
+
+// call after finish job
+func (j *Job) AfterRun() {
+	j.lastRun = time.Now()
+	j.scheduleNextRun()
 }
 
 func (j *Job) NextRun() time.Time {
