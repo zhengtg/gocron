@@ -41,6 +41,7 @@ func ChangeLoc(newLocation *time.Location) {
 const MAXJOBNUM = 10000
 
 type JobInterface interface {
+	SetName(string)
 	GetName() string
 	SetWaitGroup(wg *sync.WaitGroup)
 	ShouldRun() bool
@@ -183,9 +184,11 @@ func (j *Job) SetWaitGroup(wg *sync.WaitGroup) {
 }
 
 func (j *Job) GetName() string {
-	return j.jobFunc
+	return j.jobName
 }
-
+func (j *Job) SetName(name string) {
+	j.jobName = name
+}
 func (j *Job) JobFunction() {
 	f := reflect.ValueOf(j.funcs[j.jobFunc])
 	params := j.fparams[j.jobFunc]
