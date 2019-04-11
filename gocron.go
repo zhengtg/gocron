@@ -69,9 +69,6 @@ type JobInterface interface {
 	Weeks() (job JobInterface)
 	//Do and JobFunction
 	Do(jobFun interface{}, params ...interface{}) (job JobInterface)
-}
-
-type JobFunctionInterface interface {
 	JobFunction()
 }
 
