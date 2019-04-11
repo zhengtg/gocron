@@ -218,7 +218,7 @@ func Test_formatTime(t *testing.T) {
 }
 
 // utility function for testing the weekday functions *on* the current weekday.
-func callTodaysWeekday(job *Job) *Job {
+func callTodaysWeekday(job JobInterface) JobInterface {
 	switch time.Now().Weekday() {
 	case 0:
 		job.Sunday()
@@ -240,18 +240,18 @@ func callTodaysWeekday(job *Job) *Job {
 
 func TestScheduler_Remove(t *testing.T) {
 	scheduler := NewScheduler()
-	scheduler.Every(1).Minute().Do(task)
+	inter := scheduler.Every(1).Minute().Do(task)
 	scheduler.Every(1).Minute().Do(taskWithParams, 1, "hello")
 	if scheduler.Len() != 2 {
 		t.Fail()
 		t.Logf("Incorrect number of jobs - expected 2, actual %d", scheduler.Len())
 	}
-	scheduler.Remove(task)
+	scheduler.Remove(inter)
 	if scheduler.Len() != 1 {
 		t.Fail()
 		t.Logf("Incorrect number of jobs after removing 1 job - expected 1, actual %d", scheduler.Len())
 	}
-	scheduler.Remove(task)
+	scheduler.Remove(inter)
 	if scheduler.Len() != 1 {
 		t.Fail()
 		t.Logf("Incorrect number of jobs after removing non-existent job - expected 1, actual %d", scheduler.Len())

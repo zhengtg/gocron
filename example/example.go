@@ -2,8 +2,8 @@ package main
 
 import (
 	"fmt"
-
-	"github.com/jasonlvhit/gocron"
+	"github.com/zhengtg/gocron"
+	"time"
 )
 
 func task() {
@@ -14,9 +14,33 @@ func taskWithParams(a int, b string) {
 	fmt.Println(a, b)
 }
 
+type JobTest struct {
+	gocron.Job
+	isRunning bool
+}
+
+func NewJobTest(intervel uint64) *JobTest {
+	job := &JobTest{*gocron.NewJob(intervel), false}
+	job.isRunning = false
+	job.Do(func() {
+		job.isRunning = true
+		job.jobFunction()
+		job.isRunning = false
+	})
+	return job
+}
+
+func (self *JobTest) jobFunction() string {
+	fmt.Println("before this is a test job!!")
+	time.Sleep(3 * time.Second)
+	//panic("error test")
+	fmt.Println("after this is a test job!!")
+	return fmt.Sprint("this is a test job!!")
+}
+
 func main() {
-	// Do jobs with params
-	gocron.Every(1).Second().Do(taskWithParams, 1, "hello")
+	//// Do jobs with params
+	//gocron.Every(1).Second().Do(taskWithParams, 1, "hello")
 
 	// Do jobs without params
 	gocron.Every(1).Second().Do(task)
@@ -49,6 +73,11 @@ func main() {
 	// also , you can create a your new scheduler,
 	// to run two scheduler concurrently
 	s := gocron.NewScheduler()
+	job := NewJobTest(1).Second()
+	s.AddJob(job)
 	s.Every(3).Seconds().Do(task)
+
+	_, time := s.NextRun()
+	fmt.Println(time)
 	<-s.Start()
 }
