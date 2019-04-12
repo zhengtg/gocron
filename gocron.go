@@ -47,6 +47,7 @@ type JobInterface interface {
 	ShouldRun() bool
 	Run()
 	AfterRun()
+	ScheduleNextRun()
 	Period() time.Duration
 	NextScheduledTime() time.Time
 	At(t string) JobInterface
@@ -151,7 +152,7 @@ func (j *Job) run() (result []reflect.Value, err error) {
 
 	result = f.Call(in)
 	j.lastRun = time.Now()
-	j.scheduleNextRun()
+	j.ScheduleNextRun()
 	return
 }
 
@@ -172,7 +173,7 @@ func (j *Job) ClearSync() {
 // call after finish job
 func (j *Job) AfterRun() {
 	j.lastRun = time.Now()
-	j.scheduleNextRun()
+	j.ScheduleNextRun()
 }
 
 func (j *Job) Period() time.Duration {
@@ -222,7 +223,7 @@ func (j *Job) Do(jobFun interface{}, params ...interface{}) (job JobInterface) {
 	j.fparams[fname] = params
 	j.jobFunc = fname
 	//schedule the next run
-	j.scheduleNextRun()
+	j.ScheduleNextRun()
 	j.jobName = fname
 	return j
 }
@@ -283,7 +284,7 @@ func (j *Job) At(t string) JobInterface {
 }
 
 //Compute the instant when this job should run next
-func (j *Job) scheduleNextRun() {
+func (j *Job) ScheduleNextRun() {
 	if j.lastRun == time.Unix(0, 0) {
 		if j.unit == "weeks" {
 			i := time.Now().Weekday() - j.startDay
@@ -532,6 +533,7 @@ func (s *Scheduler) AddJob(job JobInterface) JobInterface {
 		panic("job is nil")
 	}
 	job.SetWaitGroup(s.wg)
+	job.ScheduleNextRun()
 	s.jobs[s.size] = job
 	s.size++
 	return job
