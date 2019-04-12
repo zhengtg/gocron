@@ -47,10 +47,9 @@ type JobInterface interface {
 	ShouldRun() bool
 	Run()
 	AfterRun()
-	NextRun() time.Time
 	Period() time.Duration
-	At(t string) JobInterface
 	NextScheduledTime() time.Time
+	At(t string) JobInterface
 	Second() (job JobInterface)
 	Seconds() (job JobInterface)
 	Minute() (job JobInterface)
@@ -174,10 +173,6 @@ func (j *Job) ClearSync() {
 func (j *Job) AfterRun() {
 	j.lastRun = time.Now()
 	j.scheduleNextRun()
-}
-
-func (j *Job) NextRun() time.Time {
-	return j.nextRun
 }
 
 func (j *Job) Period() time.Duration {
@@ -496,7 +491,7 @@ func (s *Scheduler) Swap(i, j int) {
 }
 
 func (s *Scheduler) Less(i, j int) bool {
-	return s.jobs[j].NextRun().After(s.jobs[i].NextRun())
+	return s.jobs[j].NextScheduledTime().After(s.jobs[i].NextScheduledTime())
 }
 
 // Create a new scheduler
@@ -528,7 +523,7 @@ func (s *Scheduler) NextRun() (JobInterface, time.Time) {
 		return nil, time.Now()
 	}
 	sort.Sort(s)
-	return s.jobs[0], s.jobs[0].NextRun()
+	return s.jobs[0], s.jobs[0].NextScheduledTime()
 }
 
 // Schedule a new periodic job
@@ -583,7 +578,7 @@ func (s *Scheduler) Remove(j JobInterface) {
 	found := false
 
 	for ; i < s.size; i++ {
-		if s.jobs[i].GetName() == j.GetName() {
+		if s.jobs[i] == j {
 			found = true
 			break
 		}
@@ -598,6 +593,59 @@ func (s *Scheduler) Remove(j JobInterface) {
 		i++
 	}
 	s.size = s.size - 1
+}
+
+// Remove specific job j
+func (s *Scheduler) RemoveOnceName(name string) {
+	i := 0
+	found := false
+
+	for ; i < s.size; i++ {
+		if s.jobs[i].GetName() == name {
+			found = true
+			break
+		}
+	}
+
+	if !found {
+		return
+	}
+
+	for j := (i + 1); j < s.size; j++ {
+		s.jobs[i] = s.jobs[j]
+		i++
+	}
+	s.size = s.size - 1
+}
+
+// Remove specific job j
+func (s *Scheduler) RemoveAllName(name string) {
+	minIdx := -1
+	r := make(map[int]bool)
+	for i := 0; i < s.size; i++ {
+		if s.jobs[i].GetName() == name {
+			r[i] = true
+			if minIdx == -1 {
+				minIdx = i
+			}
+		}
+	}
+
+	if minIdx == -1 {
+		return
+	}
+
+	s.jobs[minIdx] = nil
+	for j := minIdx + 1; j < s.size; j++ {
+		if _, ok := r[j]; ok {
+			s.jobs[j] = nil
+			continue
+		}
+		s.jobs[minIdx], s.jobs[j] = s.jobs[j], nil
+		minIdx++
+	}
+	s.size = minIdx
+	//s.size = s.size - len(r)
 }
 
 // Delete all scheduled jobs
