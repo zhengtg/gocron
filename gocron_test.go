@@ -2,6 +2,7 @@ package gocron
 
 import (
 	"fmt"
+	"math/rand"
 	"testing"
 	"time"
 )
@@ -255,5 +256,47 @@ func TestScheduler_Remove(t *testing.T) {
 	if scheduler.Len() != 1 {
 		t.Fail()
 		t.Logf("Incorrect number of jobs after removing non-existent job - expected 1, actual %d", scheduler.Len())
+	}
+}
+
+func TestRemoveMulti(t *testing.T) {
+	const TestLen = 50
+	s := [TestLen]int{}
+	for a := 0; a < 50; a++ {
+		s[a] = a + 1
+	}
+	fmt.Println("orgin", s)
+	fmt.Print("remove ")
+	minIdx := -1
+	r := make(map[int]int)
+	c := 0
+	for i := 0; i < TestLen; i++ {
+		//
+		if rand.Uint32()%2 == 0 {
+			c++
+			r[i] = c
+			fmt.Print(fmt.Sprintf("%d ", s[i]))
+			if minIdx == -1 {
+				minIdx = i
+			}
+		}
+	}
+
+	fmt.Println("remove", len(r))
+	if minIdx >= 0 {
+		s[minIdx] = 0
+		for j := minIdx + 1; j < TestLen; j++ {
+			if _, ok := r[j]; ok {
+				s[j] = 0
+				continue
+			}
+			s[minIdx], s[j] = s[j], 0
+			minIdx++
+		}
+	}
+	fmt.Println("after", s, minIdx, TestLen-len(r))
+	if minIdx != TestLen-len(r) {
+		t.Fail()
+		t.Logf("remove error %d-%d", minIdx, TestLen-len(r))
 	}
 }
