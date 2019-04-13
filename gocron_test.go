@@ -28,7 +28,7 @@ type JobTest struct {
 	isRunning bool
 }
 
-func NewJobTest(intervel uint64) *JobTest {
+func NewJobTest(intervel string) *JobTest {
 	job := &JobTest{*NewJob(intervel), false}
 	job.isRunning = false
 	job.Do(func() {
@@ -61,8 +61,8 @@ func (self *JobTest) jobFunction() string {
 
 func TestSyncStop(t *testing.T) {
 
-	defaultScheduler.Every(1).Second().Do(task)
-	job := NewJobTest(1)
+	defaultScheduler.Every("* * * * * * *").Do(task)
+	job := NewJobTest("* * * * * * *")
 	defaultScheduler.AddJob(&job.Job)
 	//defaultScheduler.AddJob((*Job)(unsafe.Pointer(job)))
 	//defaultScheduler.Every(1).Second().Do(taskTime)
@@ -78,7 +78,7 @@ func TestSyncStop(t *testing.T) {
 }
 
 func TestStop(t *testing.T) {
-	defaultScheduler.Every(1).Second().Do(taskTime)
+	defaultScheduler.Every("* * * * * * *").Do(taskTime)
 	defaultScheduler.Start()
 	time.Sleep(2 * time.Second)
 	defaultScheduler.Stop()
@@ -89,8 +89,8 @@ func TestStop(t *testing.T) {
 }
 
 func TestSecond(*testing.T) {
-	defaultScheduler.Every(1).Second().Do(task)
-	defaultScheduler.Every(1).Second().Do(taskWithParams, 1, "hello")
+	defaultScheduler.Every("* * * * * * *").Do(task)
+	defaultScheduler.Every("* * * * * * *").Do(taskWithParams, 1, "hello")
 	defaultScheduler.Start()
 	time.Sleep(10 * time.Second)
 }
@@ -99,8 +99,8 @@ func TestSecond(*testing.T) {
 func TestScheduler_Weekdays(t *testing.T) {
 	scheduler := NewScheduler()
 
-	job1 := scheduler.Every(1).Monday().At("23:59")
-	job2 := scheduler.Every(1).Wednesday().At("23:59")
+	job1 := scheduler.Every("0 59 23 * * 1 *")
+	job2 := scheduler.Every("0 59 23 * * 3 *")
 	job1.Do(task)
 	job2.Do(task)
 	t.Logf("job1 scheduled for %s", job1.NextScheduledTime())
@@ -119,7 +119,7 @@ func TestScheduler_WeekdaysTodayAfter(t *testing.T) {
 	now := time.Now()
 	timeToSchedule := time.Date(now.Year(), now.Month(), now.Day(), now.Hour(), now.Minute()-1, 0, 0, time.Local)
 
-	job := callTodaysWeekday(scheduler.Every(1)).At(fmt.Sprintf("%02d:%02d", timeToSchedule.Hour(), timeToSchedule.Minute()))
+	job := callTodaysWeekday(scheduler.Every(fmt.Sprintf("0 %d %d * * %d *", timeToSchedule.Minute(), timeToSchedule.Hour(), timeToSchedule.Weekday())))
 	job.Do(task)
 	t.Logf("job is scheduled for %s", job.NextScheduledTime())
 	if job.NextScheduledTime().Weekday() != timeToSchedule.Weekday() {
@@ -133,116 +133,15 @@ func TestScheduler_WeekdaysTodayAfter(t *testing.T) {
 	}
 }
 
-// This is to ensure that if you schedule a job for today's weekday, and the time hasn't yet passed, the next run time
-// will be scheduled for today.
-func TestScheduler_WeekdaysTodayBefore(t *testing.T) {
-	scheduler := NewScheduler()
-
-	now := time.Now()
-	timeToSchedule := time.Date(now.Year(), now.Month(), now.Day(), now.Hour(), now.Minute()+1, 0, 0, time.Local)
-
-	job := callTodaysWeekday(scheduler.Every(1)).At(fmt.Sprintf("%02d:%02d", timeToSchedule.Hour(), timeToSchedule.Minute()))
-	job.Do(task)
-	t.Logf("job is scheduled for %s", job.NextScheduledTime())
-	if !job.NextScheduledTime().Equal(timeToSchedule) {
-		t.Fail()
-		t.Logf("Job should be run today, at the set time.")
-	}
-}
-
-func Test_formatTime(t *testing.T) {
-	tests := []struct {
-		name     string
-		args     string
-		wantHour int
-		wantMin  int
-		wantErr  bool
-	}{
-		{
-			name:     "normal",
-			args:     "16:18",
-			wantHour: 16,
-			wantMin:  18,
-			wantErr:  false,
-		},
-		{
-			name:     "normal",
-			args:     "6:18",
-			wantHour: 6,
-			wantMin:  18,
-			wantErr:  false,
-		},
-		{
-			name:     "notnumber",
-			args:     "e:18",
-			wantHour: 0,
-			wantMin:  0,
-			wantErr:  true,
-		},
-		{
-			name:     "outofrange",
-			args:     "25:18",
-			wantHour: 25,
-			wantMin:  18,
-			wantErr:  true,
-		},
-		{
-			name:     "wrongformat",
-			args:     "19:18:17",
-			wantHour: 0,
-			wantMin:  0,
-			wantErr:  true,
-		},
-		{
-			name:     "wrongminute",
-			args:     "19:1e",
-			wantHour: 19,
-			wantMin:  0,
-			wantErr:  true,
-		},
-	}
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			gotHour, gotMin, err := formatTime(tt.args)
-			if (err != nil) != tt.wantErr {
-				t.Errorf("formatTime() error = %v, wantErr %v", err, tt.wantErr)
-				return
-			}
-			if gotHour != tt.wantHour {
-				t.Errorf("formatTime() gotHour = %v, want %v", gotHour, tt.wantHour)
-			}
-			if gotMin != tt.wantMin {
-				t.Errorf("formatTime() gotMin = %v, want %v", gotMin, tt.wantMin)
-			}
-		})
-	}
-}
-
 // utility function for testing the weekday functions *on* the current weekday.
 func callTodaysWeekday(job JobInterface) JobInterface {
-	switch time.Now().Weekday() {
-	case 0:
-		job.Sunday()
-	case 1:
-		job.Monday()
-	case 2:
-		job.Tuesday()
-	case 3:
-		job.Wednesday()
-	case 4:
-		job.Thursday()
-	case 5:
-		job.Friday()
-	case 6:
-		job.Saturday()
-	}
 	return job
 }
 
 func TestScheduler_Remove(t *testing.T) {
 	scheduler := NewScheduler()
-	inter := scheduler.Every(1).Minute().Do(task)
-	scheduler.Every(1).Minute().Do(taskWithParams, 1, "hello")
+	inter := scheduler.Every("0 * * * * * ").Do(task)
+	scheduler.Every("0 * * * * * ").Do(taskWithParams, 1, "hello")
 	if scheduler.Len() != 2 {
 		t.Fail()
 		t.Logf("Incorrect number of jobs - expected 2, actual %d", scheduler.Len())

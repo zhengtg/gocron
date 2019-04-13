@@ -20,11 +20,10 @@ package gocron
 
 import (
 	"errors"
+	"github.com/gorhill/cronexpr"
 	"reflect"
 	"runtime"
 	"sort"
-	"strconv"
-	"strings"
 	"sync"
 	"time"
 )
@@ -47,52 +46,28 @@ type JobInterface interface {
 	ShouldRun() bool
 	Run()
 	AfterRun()
+	SetCronExpr(string)
+	GetCronExpr() string
 	ScheduleNextRun()
-	Period() time.Duration
 	NextScheduledTime() time.Time
-	At(t string) JobInterface
-	Second() (job JobInterface)
-	Seconds() (job JobInterface)
-	Minute() (job JobInterface)
-	Minutes() (job JobInterface)
-	Hour() (job JobInterface)
-	Hours() (job JobInterface)
-	Day() (job JobInterface)
-	Days() (job JobInterface)
-	Monday() (job JobInterface)
-	Tuesday() (job JobInterface)
-	Wednesday() (job JobInterface)
-	Thursday() (job JobInterface)
-	Friday() (job JobInterface)
-	Saturday() (job JobInterface)
-	Sunday() (job JobInterface)
-	Weeks() (job JobInterface)
 	//Do and JobFunction
 	Do(jobFun interface{}, params ...interface{}) (job JobInterface)
 	JobFunction()
 }
 
 type Job struct {
-
-	// pause interval * unit bettween runs
-	interval uint64
-
 	// the job jobFunc to run, func[jobFunc]
 	jobFunc string
-	// time units, ,e.g. 'minutes', 'hours'...
-	unit string
-	// optional time at which this job runs
-	atTime string
+
+	// cron express for job
+	cronExprString string
+
+	cronExpress *cronexpr.Expression
 
 	// datetime of last run
 	lastRun time.Time
 	// datetime of next run
 	nextRun time.Time
-	// cache the period between last an next run
-	period time.Duration
-
-	// Specific day of the week to start on
-	startDay time.Weekday
 
 	// Map for the function task store
 	funcs map[string]interface{}
@@ -108,13 +83,13 @@ type Job struct {
 }
 
 // Create a new job with the time interval.
-func NewJob(intervel uint64) *Job {
+func NewJob(cronExpr string) *Job {
 	return &Job{
-		intervel,
-		"", "", "",
+		"",
+		cronExpr,
+		nil,
 		time.Unix(0, 0),
-		time.Unix(0, 0), 0,
-		time.Sunday,
+		time.Unix(0, 0),
 		make(map[string]interface{}),
 		make(map[string]([]interface{})),
 		nil, "",
@@ -176,10 +151,6 @@ func (j *Job) AfterRun() {
 	j.ScheduleNextRun()
 }
 
-func (j *Job) Period() time.Duration {
-	return j.period
-}
-
 func (j *Job) SetWaitGroup(wg *sync.WaitGroup) {
 	j.wg = wg
 }
@@ -190,6 +161,15 @@ func (j *Job) GetName() string {
 func (j *Job) SetName(name string) {
 	j.jobName = name
 }
+
+func (j *Job) GetCronExpr() string {
+	return j.cronExprString
+}
+
+func (j *Job) SetCronExpr(cron string) {
+	j.cronExprString = cron
+}
+
 func (j *Job) JobFunction() {
 	f := reflect.ValueOf(j.funcs[j.jobFunc])
 	params := j.fparams[j.jobFunc]
@@ -228,242 +208,24 @@ func (j *Job) Do(jobFun interface{}, params ...interface{}) (job JobInterface) {
 	return j
 }
 
-func formatTime(t string) (hour, min int, err error) {
-	var er = errors.New("time format error")
-	ts := strings.Split(t, ":")
-	if len(ts) != 2 {
-		err = er
-		return
-	}
-
-	hour, err = strconv.Atoi(ts[0])
-	if err != nil {
-		return
-	}
-	min, err = strconv.Atoi(ts[1])
-	if err != nil {
-		return
-	}
-
-	if hour < 0 || hour > 23 || min < 0 || min > 59 {
-		err = er
-		return
-	}
-	return hour, min, nil
-}
-
-//	s.Every(1).Day().At("10:30").Do(task)
-//	s.Every(1).Monday().At("10:30").Do(task)
-func (j *Job) At(t string) JobInterface {
-	hour, min, err := formatTime(t)
-	if err != nil {
-		panic(err)
-	}
-
-	// time.Date(2009, time.November, 10, 23, 0, 0, 0, time.UTC)
-	mock := time.Date(time.Now().Year(), time.Now().Month(), time.Now().Day(), int(hour), int(min), 0, 0, loc)
-
-	if j.unit == "days" {
-		if time.Now().After(mock) {
-			j.lastRun = mock
-		} else {
-			j.lastRun = time.Date(time.Now().Year(), time.Now().Month(), time.Now().Day()-1, hour, min, 0, 0, loc)
-		}
-	} else if j.unit == "weeks" {
-		if j.startDay != time.Now().Weekday() || (time.Now().After(mock) && j.startDay == time.Now().Weekday()) {
-			i := mock.Weekday() - j.startDay
-			if i < 0 {
-				i = 7 + i
-			}
-			j.lastRun = time.Date(time.Now().Year(), time.Now().Month(), time.Now().Day()-int(i), hour, min, 0, 0, loc)
-		} else {
-			j.lastRun = time.Date(time.Now().Year(), time.Now().Month(), time.Now().Day()-7, hour, min, 0, 0, loc)
-		}
-	}
-	return j
-}
-
 //Compute the instant when this job should run next
 func (j *Job) ScheduleNextRun() {
+	if j.cronExpress == nil {
+		j.cronExpress = cronexpr.MustParse(j.cronExprString)
+		if j.cronExpress.Next(time.Now()).IsZero() {
+			panic("invalid cron express string")
+		}
+	}
+
 	if j.lastRun == time.Unix(0, 0) {
-		if j.unit == "weeks" {
-			i := time.Now().Weekday() - j.startDay
-			if i < 0 {
-				i = 7 + i
-			}
-			j.lastRun = time.Date(time.Now().Year(), time.Now().Month(), time.Now().Day()-int(i), 0, 0, 0, 0, loc)
-
-		} else {
-			j.lastRun = time.Now()
-		}
+		j.lastRun = time.Now()
 	}
-
-	if j.period != 0 {
-		// translate all the units to the Seconds
-		j.nextRun = j.lastRun.Add(j.period * time.Second)
-	} else {
-		switch j.unit {
-		case "minutes":
-			j.period = time.Duration(j.interval * 60)
-			break
-		case "hours":
-			j.period = time.Duration(j.interval * 60 * 60)
-			break
-		case "days":
-			j.period = time.Duration(j.interval * 60 * 60 * 24)
-			break
-		case "weeks":
-			j.period = time.Duration(j.interval * 60 * 60 * 24 * 7)
-			break
-		case "seconds":
-			j.period = time.Duration(j.interval)
-		}
-		j.nextRun = j.lastRun.Add(j.period * time.Second)
-	}
+	j.nextRun = j.cronExpress.Next(j.lastRun)
 }
 
 // NextScheduledTime returns the time of when this job is to run next
 func (j *Job) NextScheduledTime() time.Time {
 	return j.nextRun
-}
-
-// the follow functions set the job's unit with seconds,minutes,hours...
-
-// Set the unit with second
-func (j *Job) Second() (job JobInterface) {
-	if j.interval != 1 {
-		panic("")
-	}
-	job = j.Seconds()
-	return
-}
-
-// Set the unit with seconds
-func (j *Job) Seconds() (job JobInterface) {
-	j.unit = "seconds"
-	return j
-}
-
-// Set the unit  with minute, which interval is 1
-func (j *Job) Minute() (job JobInterface) {
-	if j.interval != 1 {
-		panic("")
-	}
-	job = j.Minutes()
-	return
-}
-
-//set the unit with minute
-func (j *Job) Minutes() (job JobInterface) {
-	j.unit = "minutes"
-	return j
-}
-
-//set the unit with hour, which interval is 1
-func (j *Job) Hour() (job JobInterface) {
-	if j.interval != 1 {
-		panic("")
-	}
-	job = j.Hours()
-	return
-}
-
-// Set the unit with hours
-func (j *Job) Hours() (job JobInterface) {
-	j.unit = "hours"
-	return j
-}
-
-// Set the job's unit with day, which interval is 1
-func (j *Job) Day() (job JobInterface) {
-	if j.interval != 1 {
-		panic("")
-	}
-	job = j.Days()
-	return
-}
-
-// Set the job's unit with days
-func (j *Job) Days() JobInterface {
-	j.unit = "days"
-	return j
-}
-
-// s.Every(1).Monday().Do(task)
-// Set the start day with Monday
-func (j *Job) Monday() (job JobInterface) {
-	if j.interval != 1 {
-		panic("")
-	}
-	j.startDay = 1
-	job = j.Weeks()
-	return
-}
-
-// Set the start day with Tuesday
-func (j *Job) Tuesday() (job JobInterface) {
-	if j.interval != 1 {
-		panic("")
-	}
-	j.startDay = 2
-	job = j.Weeks()
-	return
-}
-
-// Set the start day woth Wednesday
-func (j *Job) Wednesday() (job JobInterface) {
-	if j.interval != 1 {
-		panic("")
-	}
-	j.startDay = 3
-	job = j.Weeks()
-	return
-}
-
-// Set the start day with thursday
-func (j *Job) Thursday() (job JobInterface) {
-	if j.interval != 1 {
-		panic("")
-	}
-	j.startDay = 4
-	job = j.Weeks()
-	return
-}
-
-// Set the start day with friday
-func (j *Job) Friday() (job JobInterface) {
-	if j.interval != 1 {
-		panic("")
-	}
-	j.startDay = 5
-	job = j.Weeks()
-	return
-}
-
-// Set the start day with saturday
-func (j *Job) Saturday() (job JobInterface) {
-	if j.interval != 1 {
-		panic("")
-	}
-	j.startDay = 6
-	job = j.Weeks()
-	return
-}
-
-// Set the start day with sunday
-func (j *Job) Sunday() (job JobInterface) {
-	if j.interval != 1 {
-		panic("")
-	}
-	j.startDay = 0
-	job = j.Weeks()
-	return
-}
-
-//Set the units as weeks
-func (j *Job) Weeks() JobInterface {
-	j.unit = "weeks"
-	return j
 }
 
 // Class Scheduler, the only data member is the list of jobs.
@@ -540,8 +302,8 @@ func (s *Scheduler) AddJob(job JobInterface) JobInterface {
 }
 
 // Schedule a new periodic job
-func (s *Scheduler) Every(interval uint64) JobInterface {
-	job := NewJob(interval)
+func (s *Scheduler) Every(cron string) JobInterface {
+	job := NewJob(cron)
 	job.SetWaitGroup(s.wg)
 	s.jobs[s.size] = job
 	s.size++
@@ -694,8 +456,8 @@ var defaultScheduler = NewScheduler()
 var jobs = defaultScheduler.jobs
 
 // Schedule a new periodic job
-func Every(interval uint64) JobInterface {
-	return defaultScheduler.Every(interval)
+func Every(cron string) JobInterface {
+	return defaultScheduler.Every(cron)
 }
 
 // Run all jobs that are scheduled to run
